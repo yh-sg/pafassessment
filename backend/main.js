@@ -13,6 +13,7 @@ const findUser = `select * from user where user_id = ? and password = ?`
 
 require('dotenv').config();
 
+
 const PORT = parseInt(process.argv[2]) || parseInt(process.env.PORT) || 3000
 
 const app = express()
@@ -21,6 +22,13 @@ app.use(morgan('combined'))
 app.use(cors());
 app.use(bodyParser.urlencoded({limit: '50mb', extended: true}))
 app.use(bodyParser.json({limit: '50mb'}))
+
+const MongoClient = require('mongodb').MongoClient
+const ObjectId = require('mongodb').ObjectId;
+const MONGO_URL = 'mongodb://localhost:27017'
+const mongoClient = new MongoClient(MONGO_URL,
+    {useNewUrlParser: true,useUnifiedTopology: true}
+)
 
 const pool = mysql.createPool({
     host: process.env.MYSQL_SERVER,
@@ -49,20 +57,20 @@ const makeQuery = (sql, pool)=>{
 const loginUser = makeQuery(findUser, pool)
 const users = makeQuery(findAllUser, pool)
 
-const startApp = async(app,pool) => {
-    const conn = await pool.getConnection(); 
-    try{
-        console.log("test database connection...");
-        await conn.ping();
-		app.listen(PORT, () => {
-			console.info(`Application started on port ${PORT} at ${new Date()}`)
-		})
-    }catch(e){
-        console.log(e);
-    }finally{
-        conn.release();
-    }
-}
+// const startApp = async(app,pool) => {
+//     const conn = await pool.getConnection(); 
+//     try{
+//         console.log("test database connection...");
+//         await conn.ping();
+// 		app.listen(PORT, () => {
+// 			console.info(`Application started on port ${PORT} at ${new Date()}`)
+// 		})
+//     }catch(e){
+//         console.log(e);
+//     }finally{
+//         conn.release();
+//     }
+// }
 
 const AWS_S3_HOSTNAME = process.env.AWS_S3_HOSTNAME;
 const AWS_S3_ACCESS_KEY = process.env.AWS_S3_ACCESS_KEY;
@@ -79,16 +87,6 @@ const s3 = new AWS.S3({
 
 const upload = multer({
     dest: process.env.TMP_DIR || '/Users/yh/Desktop/NUS/paf-assessment-dec18-2020/temp'
-})
-
-app.get('/',(req,res)=>{
-	users([]).then((results)=>{
-        console.log(results);
-        res.status(200).json({results});
-	}).catch((err)=>{
-        console.log(err);
-        res.status(500).json(err)
-    })
 })
 
 app.post('/login', (req,res)=>{
@@ -122,24 +120,67 @@ app.post('/share', upload.single('tempimg'), async(req,res)=>{
             ACL: 'public-read',
             ContentType: req.file.mimetype,
             ContentLength: req.file.size
-        }
-		s3.putObject(params, (err, result)=>{})
+		}
 		
-		console.log(req.body.username);
-		console.log(req.body.password);
-		console.log(req.body.title);
-		console.log(req.body.comments);
-		res.status(200);
-		res.type("application/json")
-		res.json({
-			message: "uploaded",
-		})
+	s3.putObject(params, (err, result)=>{
+		
 	})
-	// .catch(err=>{
-    //     console.log(err);
-    //     res.status(500)
-    //     res.json(err)
-    // })
+		
+		mongoClient.db('paf2020').collection('paf2020')
+		.insertOne({
+			title: req.body.title,
+			comments: req.body.comments,
+			image: req.file.filename,
+			timestamp: new Date()
+		})
+		.then(result=>{
+			let resultID = result.ops[0]._id;
+			res.status(200);
+			res.type("application/json")
+			res.json({
+				id: resultID,
+			})
+		})
+		.catch(err=>{
+			console.log(err);
+			res.status(500)
+			res.json(err)
+	})
+    })
 })
 
-startApp(app, pool)
+const p0 = async() => {
+    const conn = await pool.getConnection(); 
+    try{
+        console.log("test database connection...");
+        await conn.ping();
+    }catch(e){
+        console.log(e);
+    }finally{
+        conn.release();
+    }
+}
+
+const p1 = new Promise(
+    (resolve, reject)=>{
+        if ((!!AWS_S3_ACCESS_KEY)&&(!!AWS_S3_SECRET_ASSESSKEY)){
+            resolve()
+        }else{
+            reject('S3 Keys not found')
+        }
+    }
+)
+
+const p2 = mongoClient.connect()
+
+// serve frontend 
+app.use(express.static(__dirname + '/frontend'))
+
+Promise.all([p0,p1,p2])
+    .then(()=>{
+        app.listen(PORT,()=>{
+            console.log(`App is listening on port`, PORT);
+        })
+    }).catch(e=>{
+        console.log("Cannot connect to database");
+    })

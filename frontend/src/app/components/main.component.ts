@@ -12,7 +12,7 @@ import {CameraService} from '../camera.service';
 export class MainComponent implements OnInit {
 
 	form: FormGroup
-
+	uploadedImg;
 
 	imagePath = '/assets/cactus.png'
 
@@ -38,7 +38,6 @@ export class MainComponent implements OnInit {
 		let username = data[0]
 		let password = data[1]
 		console.log(username);
-		
 
 		formData.set('username', username);
 		formData.set('password', password);
@@ -49,7 +48,9 @@ export class MainComponent implements OnInit {
 		this.athenticationSvc.upload(formData)
 		.then(result => {
 			console.log(result)
-			this.router.navigate([`/main`])
+			this.form.reset();
+			this.imagePath = '/assets/cactus.png'
+			this.uploadedImg = this.cameraSvc.getImage().imageAsDataUrl
 		  })
 		  .catch(error => {
 			 console.log(error)
